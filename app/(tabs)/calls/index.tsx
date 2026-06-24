@@ -1,5 +1,6 @@
-import Colors from '@/constants/Colors';
+import { getColors } from '@/constants/Colors';
 import { Stack } from 'expo-router';
+import { useTheme } from '@/lib/theme';
 import {
   View,
   Text,
@@ -31,6 +32,8 @@ const transition = CurvedTransition.delay(100);
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
 const Page = () => {
+  const { isDark } = useTheme();
+  const Colors = getColors(isDark);
   const [selectedOption, setSelectedOption] = useState('All');
   const [items, setItems] = useState(calls);
   const [isEditing, setIsEditing] = useState(false);
@@ -112,7 +115,7 @@ const Page = () => {
                     <Image source={{ uri: item.img }} style={styles.avatar} />
 
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={{ fontSize: 18, color: item.missed ? Colors.red : '#000' }}>
+                      <Text style={{ fontSize: 18, color: item.missed ? Colors.red : Colors.text }}>
                         {item.name}
                       </Text>
 

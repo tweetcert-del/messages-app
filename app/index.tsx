@@ -3,31 +3,31 @@ import { View, Text, Image, StyleSheet, TouchableOpacity, Linking } from 'react-
 import Colors from '@/constants/Colors';
 import { Link } from 'expo-router';
 import welcomeImage from '@/assets/images/welcome.png';
-const welcome_image = Image.resolveAssetSource(welcomeImage).uri;
-
+import { useI18n } from '@/lib/i18n';
 const WelcomeScreen = () => {
+  const { t } = useI18n();
   const openLink = () => {
     Linking.openURL('https://galaxies.dev');
   };
 
   return (
     <View style={styles.container}>
-      <Image source={{ uri: welcome_image }} style={styles.welcome} />
-      <Text style={styles.headline}>Welcome to WhatsApp Clone</Text>
+      <Image source={welcomeImage} style={styles.welcome} />
+      <Text style={styles.headline}>{t('welcome.headline')}</Text>
       <Text style={styles.description}>
-        Read our{' '}
+        {t('welcome.read_our')}{' '}
         <Text style={styles.link} onPress={openLink}>
-          Privacy Policy
+          {t('welcome.privacy_policy')}
         </Text>
-        . {'Tap "Agree & Continue" to accept the '}
+        . {t('welcome.tap_agree_continue')}{' '}
         <Text style={styles.link} onPress={openLink}>
-          Terms of Service
+          {t('welcome.terms_of_service')}
         </Text>
         .
       </Text>
-      <Link href={'/otp'} replace asChild>
+      <Link href={'/sign-in'} replace asChild>
         <TouchableOpacity style={styles.button}>
-          <Text style={styles.buttonText}>Agree & Continue</Text>
+          <Text style={styles.buttonText}>{t('welcome.agree_continue')}</Text>
         </TouchableOpacity>
       </Link>
     </View>

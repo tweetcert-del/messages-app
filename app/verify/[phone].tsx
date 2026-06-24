@@ -3,6 +3,7 @@ import { useSignUp, isClerkAPIResponseError, useSignIn } from '@clerk/clerk-expo
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { useI18n } from '@/lib/i18n';
 import {
   CodeField,
   Cursor,
@@ -13,7 +14,9 @@ const CELL_COUNT = 6;
 
 const Page = () => {
   const { phone, signin } = useLocalSearchParams<{ phone: string; signin: string }>();
+  const normalizedPhone = decodeURIComponent(phone || '').replace(/\s+/g, '');
   const [code, setCode] = useState('');
+  const { t } = useI18n();
 
   const ref = useBlurOnFulfill({ value: code, cellCount: CELL_COUNT });
   const [props, getCellOnLayoutHandler] = useClearByFocusCell({
@@ -71,7 +74,7 @@ const Page = () => {
     try {
       if (signin === 'true') {
         const { supportedFirstFactors } = await signIn!.create({
-          identifier: phone,
+          identifier: normalizedPhone,
         });
 
         const firstPhoneFactor: any = supportedFirstFactors.find((factor: any) => {
@@ -86,7 +89,7 @@ const Page = () => {
         });
       } else {
         await signUp!.create({
-          phoneNumber: phone,
+          phoneNumber: normalizedPhone,
         });
         signUp!.preparePhoneNumberVerification();
       }
@@ -100,11 +103,9 @@ const Page = () => {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: phone }} />
-      <Text style={styles.legal}>We have sent you an SMS with a code to the number above.</Text>
-      <Text style={styles.legal}>
-        To complete your phone number verification, please enter the 6-digit activation code.
-      </Text>
+      <Stack.Screen options={{ title: normalizedPhone }} />
+      <Text style={styles.legal}>{t('verify.sms_sent')}</Text>
+      <Text style={styles.legal}>{t('verify.enter_code')}</Text>
 
       <CodeField
         ref={ref}
@@ -127,7 +128,7 @@ const Page = () => {
       />
 
       <TouchableOpacity style={styles.button} onPress={resendCode}>
-        <Text style={styles.buttonText}>Didn't receive a verification code?</Text>
+        <Text style={styles.buttonText}>{t('verify.resend')}</Text>
       </TouchableOpacity>
     </View>
   );

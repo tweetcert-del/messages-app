@@ -12,55 +12,54 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Modal,
+  FlatList,
+  TextInput,
 } from 'react-native';
-import MaskInput from 'react-native-mask-input';
 import { isClerkAPIResponseError, useSignIn, useSignUp } from '@clerk/clerk-expo';
-
-const GER_PHONE = [
-  `+`,
-  /\d/,
-  /\d/,
-  ' ',
-  /\d/,
-  /\d/,
-  /\d/,
-  ' ',
-  /\d/,
-  /\d/,
-  /\d/,
-  /\d/,
-  /\d/,
-  /\d/,
-  /\d/,
-  /\d/,
-];
+import { useI18n } from '@/lib/i18n';
 
 const Page = () => {
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const { t } = useI18n();
+  const [nationalNumber, setNationalNumber] = useState('');
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
+  const [country, setCountry] = useState({ name: 'Germany', callingCode: '49' });
   const keyboardVerticalOffset = Platform.OS === 'ios' ? 90 : 0;
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const { signUp, setActive } = useSignUp();
   const { signIn } = useSignIn();
 
+  const countries = [
+    { name: 'Germany', callingCode: '49' },
+    { name: 'United States', callingCode: '1' },
+    { name: 'United Kingdom', callingCode: '44' },
+    { name: 'France', callingCode: '33' },
+    { name: 'Spain', callingCode: '34' },
+    { name: 'Mexico', callingCode: '52' },
+  ];
+
+  const nationalDigits = nationalNumber.replace(/\D+/g, '');
+  const phoneNumberE164 = `+${country.callingCode}${nationalDigits}`;
+
   const openLink = () => {
     Linking.openURL('https://galaxies.dev');
   };
 
   const sendOTP = async () => {
-    console.log('sendOTP', phoneNumber);
+    console.log('sendOTP', phoneNumberE164);
     setLoading(true);
 
     try {
       await signUp!.create({
-        phoneNumber,
+        phoneNumber: phoneNumberE164,
       });
       console.log('TESafter createT: ', signUp!.createdSessionId);
 
       signUp!.preparePhoneNumberVerification();
 
       console.log('after prepare: ');
-      router.push(`/verify/${phoneNumber}`);
+      router.push(`/verify/${encodeURIComponent(phoneNumberE164)}`);
     } catch (err) {
       console.log('error', JSON.stringify(err, null, 2));
 
@@ -78,10 +77,10 @@ const Page = () => {
   };
 
   const trySignIn = async () => {
-    console.log('trySignIn', phoneNumber);
+    console.log('trySignIn', phoneNumberE164);
 
     const { supportedFirstFactors } = await signIn!.create({
-      identifier: phoneNumber,
+      identifier: phoneNumberE164,
     });
 
     const firstPhoneFactor: any = supportedFirstFactors.find((factor: any) => {
@@ -95,7 +94,7 @@ const Page = () => {
       phoneNumberId,
     });
 
-    router.push(`/verify/${phoneNumber}?signin=true`);
+    router.push(`/verify/${encodeURIComponent(phoneNumberE164)}?signin=true`);
     setLoading(false);
   };
 
@@ -107,33 +106,39 @@ const Page = () => {
       {loading && (
         <View style={[StyleSheet.absoluteFill, styles.loading]}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={{ fontSize: 18, padding: 10 }}>Sending code...</Text>
+          <Text style={{ fontSize: 18, padding: 10 }}>{t('otp.sending_code')}</Text>
         </View>
       )}
 
       <View style={styles.container}>
         <Text style={styles.description}>
-          WhatsApp will need to verify your account. Carrier charges may apply.
+          {t('otp.description')}
         </Text>
 
         <View style={styles.list}>
-          <View style={styles.listItem}>
-            <Text style={styles.listItemText}>Germany</Text>
+          <TouchableOpacity
+            style={styles.listItem}
+            activeOpacity={0.7}
+            onPress={() => setCountryPickerOpen(true)}>
+            <Text style={styles.listItemText}>{country.name}</Text>
             <Ionicons name="chevron-forward" size={20} color={Colors.gray} />
-          </View>
+          </TouchableOpacity>
           <View style={styles.separator} />
 
-          <MaskInput
-            value={phoneNumber}
-            keyboardType="numeric"
-            autoFocus
-            placeholder="+12 your phone number"
-            onChangeText={(masked, unmasked) => {
-              setPhoneNumber(masked);
-            }}
-            mask={GER_PHONE}
-            style={styles.input}
-          />
+          <View style={styles.phoneRow}>
+            <View style={styles.prefixBox}>
+              <Text style={styles.prefixText}>+{country.callingCode}</Text>
+            </View>
+
+            <TextInput
+              value={nationalNumber}
+              keyboardType="phone-pad"
+              autoFocus
+              placeholder={t('otp.phone_placeholder')}
+              onChangeText={setNationalNumber}
+              style={styles.nationalInput}
+            />
+          </View>
         </View>
 
         <Text style={styles.legal}>
@@ -151,11 +156,61 @@ const Page = () => {
         <View style={{ flex: 1 }} />
 
         <TouchableOpacity
-          style={[styles.button, phoneNumber !== '' ? styles.enabled : null, { marginBottom: 20 }]}
+          style={[
+            styles.button,
+            nationalDigits !== '' ? styles.enabled : null,
+            { marginBottom: 20 },
+          ]}
           onPress={sendOTP}>
-          <Text style={[styles.buttonText, phoneNumber !== '' ? styles.enabled : null]}>Next</Text>
+          <Text style={[styles.buttonText, nationalDigits !== '' ? styles.enabled : null]}>
+            {t('otp.next')}
+          </Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={countryPickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCountryPickerOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t('otp.select_country')}</Text>
+              <TouchableOpacity onPress={() => setCountryPickerOpen(false)}>
+                <Ionicons name="close" size={26} color={Colors.gray} />
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={countries}
+              keyExtractor={(item) => item.callingCode + item.name}
+              ItemSeparatorComponent={() => <View style={styles.modalSeparator} />}
+              renderItem={({ item }) => {
+                const selected = item.callingCode === country.callingCode;
+
+                return (
+                  <TouchableOpacity
+                    style={styles.modalRow}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setCountry(item);
+                      setCountryPickerOpen(false);
+                    }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modalRowTitle}>{item.name}</Text>
+                      <Text style={styles.modalRowSubtitle}>+{item.callingCode}</Text>
+                    </View>
+                    {selected ? (
+                      <Ionicons name="checkmark" size={22} color={Colors.primary} />
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -219,12 +274,76 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gray,
     opacity: 0.2,
   },
-  input: {
-    backgroundColor: '#fff',
-    width: '100%',
-    fontSize: 16,
-    padding: 6,
+
+  phoneRow: {
+    flexDirection: 'row',
+    gap: 10,
     marginTop: 10,
+    alignItems: 'center',
+  },
+  prefixBox: {
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.background,
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  prefixText: {
+    fontSize: 16,
+    color: '#000',
+  },
+  nationalInput: {
+    flex: 1,
+    backgroundColor: '#fff',
+    fontSize: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    paddingBottom: 20,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  modalSeparator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.lightGray,
+  },
+  modalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  modalRowTitle: {
+    fontSize: 16,
+    color: '#000',
+  },
+  modalRowSubtitle: {
+    fontSize: 12,
+    color: Colors.gray,
+    marginTop: 3,
   },
 
   loading: {

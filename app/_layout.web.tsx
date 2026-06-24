@@ -1,22 +1,17 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { ClerkProvider, useAuth } from '@clerk/clerk-react';
 import { useFonts } from 'expo-font';
-import { Link, Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
+import { Link, Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import * as SecureStore from 'expo-secure-store';
-import { TouchableOpacity, View, Platform } from 'react-native';
+import { TouchableOpacity, View } from 'react-native';
 import Colors from '@/constants/Colors';
-import { getColors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '@/lib/theme';
-import * as WebBrowser from 'expo-web-browser';
 import { ConvexProviderWithAuth, ConvexReactClient, useConvexAuth, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { I18nProvider, useI18n } from '@/lib/i18n';
-import { ThemeProvider } from '@/lib/theme';
-import { configureAppUpdatesNotifications, ensureAppUpdatesTaskAsync } from '@/lib/appUpdates';
 
-const isWeb = Platform.OS === 'web';
+SplashScreen.preventAutoHideAsync();
 
 const patchGlobalAtobForBase64Url = () => {
   const originalAtob = (globalThis as any)?.atob;
@@ -37,9 +32,7 @@ const patchGlobalAtobForBase64Url = () => {
 
 patchGlobalAtobForBase64Url();
 
-const { ClerkProvider, useAuth } = isWeb
-  ? require('@clerk/clerk-react')
-  : require('@clerk/clerk-expo');
+const LANGUAGE_STORAGE_KEY = 'settings.language';
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL;
@@ -49,8 +42,6 @@ if (!CONVEX_URL) {
 }
 
 const convex = new ConvexReactClient(CONVEX_URL);
-
-const LANGUAGE_STORAGE_KEY = 'settings.language';
 
 const normalizeClerkPublishableKey = (key?: string) => {
   if (!key) return key;
@@ -84,26 +75,6 @@ const normalizeClerkPublishableKey = (key?: string) => {
   payload = payload.replace(/-/g, '+').replace(/_/g, '/');
   const padLen = (4 - (payload.length % 4)) % 4;
   return `${prefix}${payload}${'='.repeat(padLen)}`;
-};
-
-// Cache the Clerk JWT (localStorage works for web dev; use expo-secure-store for native builds)
-const tokenCache = {
-  async getToken(key: string) {
-    if (isWeb) return localStorage.getItem(key);
-    return SecureStore.getItemAsync(key);
-  },
-  async saveToken(key: string, value: string) {
-    if (isWeb) {
-      localStorage.setItem(key, value);
-      return;
-    }
-    await SecureStore.setItemAsync(key, value);
-  },
-};
-
-const getStoredLanguage = async () => {
-  if (isWeb) return localStorage.getItem(LANGUAGE_STORAGE_KEY);
-  return SecureStore.getItemAsync(LANGUAGE_STORAGE_KEY);
 };
 
 function SyncMe() {
@@ -141,29 +112,17 @@ function useClerkForConvex() {
   );
 }
 
-export {
-  // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
-} from 'expo-router';
-
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
-
 const InitialLayout = () => {
-  const { isLoaded, isSignedIn } = useAuth();
-  const { t } = useI18n();
-  const { isDark } = useTheme();
-  const themeColors = getColors(isDark);
   const segments = useSegments();
   const topSegment = segments[0];
   const router = useRouter();
-  const rootNavigationState = useRootNavigationState();
+  const { isLoaded, isSignedIn } = useAuth();
+  const { t } = useI18n();
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
   });
 
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
   useEffect(() => {
     if (error) throw error;
   }, [error]);
@@ -175,40 +134,29 @@ const InitialLayout = () => {
   }, [loaded]);
 
   useEffect(() => {
+    const storedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    const inLanguageScreen = topSegment === 'language';
+
     if (!isLoaded) return;
-    if (!rootNavigationState?.key) return;
 
-    let cancelled = false;
+    const inTabsGroup = topSegment === '(tabs)';
 
-    (async () => {
-      const storedLanguage = await getStoredLanguage();
-      if (cancelled) return;
+    if (isSignedIn && !storedLanguage && !inLanguageScreen) {
+      router.replace('/language');
+      return;
+    }
 
-      const inLanguageScreen = topSegment === 'language';
-      const inTabsGroup = topSegment === '(tabs)';
-      const inModal = topSegment === '(modals)';
+    if (isSignedIn && storedLanguage && !inTabsGroup && !inLanguageScreen) {
+      router.replace('/(tabs)/chats');
+      return;
+    }
 
-      if (isSignedIn && !storedLanguage && !inLanguageScreen) {
-        router.replace('/language');
-        return;
-      }
+    if (!isSignedIn && inTabsGroup) {
+      router.replace('/');
+    }
+  }, [isLoaded, isSignedIn, topSegment]);
 
-      if (isSignedIn && storedLanguage && !inTabsGroup && !inLanguageScreen && !inModal) {
-        router.replace('/(tabs)/chats');
-        return;
-      }
-
-      if (!isSignedIn && inTabsGroup) {
-        router.replace('/');
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoaded, isSignedIn, rootNavigationState?.key, topSegment]);
-
-  if (!loaded || !isLoaded) {
+  if (!loaded) {
     return <View />;
   }
 
@@ -236,24 +184,9 @@ const InitialLayout = () => {
         options={{
           presentation: 'modal',
           title: t('new_chat.title'),
-          ...(Platform.OS === 'ios'
-            ? {
-                headerTransparent: true,
-                headerBlurEffect: 'regular',
-                headerStyle: {
-                  backgroundColor: themeColors.background,
-                },
-                headerSearchBarOptions: {
-                  placeholder: t('new_chat.search_placeholder'),
-                  hideWhenScrolling: false,
-                },
-              }
-            : {
-                headerStyle: {
-                  backgroundColor: themeColors.headerBackground,
-                },
-                headerTitleAlign: 'left',
-              }),
+          headerStyle: {
+            backgroundColor: '#fff',
+          },
           headerRight: () => (
             <Link href={'/(tabs)/chats'} asChild>
               <TouchableOpacity
@@ -268,30 +201,18 @@ const InitialLayout = () => {
   );
 };
 
+export {
+  ErrorBoundary,
+} from 'expo-router';
+
 const RootLayoutNav = () => {
-  useEffect(() => {
-    if (!isWeb) {
-      WebBrowser.maybeCompleteAuthSession();
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isWeb) return;
-    configureAppUpdatesNotifications();
-    void ensureAppUpdatesTaskAsync();
-  }, []);
-
   return (
-    <ClerkProvider
-      publishableKey={normalizeClerkPublishableKey(CLERK_PUBLISHABLE_KEY)!}
-      {...(!isWeb ? { tokenCache } : {})}>
+    <ClerkProvider publishableKey={normalizeClerkPublishableKey(CLERK_PUBLISHABLE_KEY)!}>
       <ConvexProviderWithAuth client={convex} useAuth={useClerkForConvex}>
-        <ThemeProvider>
-          <I18nProvider>
-            <SyncMe />
-            <InitialLayout />
-          </I18nProvider>
-        </ThemeProvider>
+        <I18nProvider>
+          <SyncMe />
+          <InitialLayout />
+        </I18nProvider>
       </ConvexProviderWithAuth>
     </ClerkProvider>
   );
