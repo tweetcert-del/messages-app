@@ -19,10 +19,12 @@ import { api } from '@/convex/_generated/api';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import { COUNTRIES } from '@/lib/countries';
+import { formatPhoneInput, stripPhoneFormat } from '@/lib/phone-utils';
 
 const isAndroidLike = Platform.OS === 'android' || Platform.OS === 'web';
 
-type Step = 'input' | 'checking' | 'verify' | 'credentials' | 'adding';
+type Step = 'input' | 'checking' | 'verify' | 'credentials' | 'adding' | 'token';
 
 const Page = () => {
   const { t } = useI18n();
@@ -35,8 +37,10 @@ const Page = () => {
 
   const checkExists = useMutation(api.phoneNumbers.checkPhoneNumberExists);
   const addVerified = useMutation(api.phoneNumbers.addVerifiedPhoneNumber);
+  const addPhone = useMutation(api.phoneNumbers.addPhoneNumber);
   const deletePhone = useMutation(api.phoneNumbers.deletePhoneNumber);
   const setDefault = useMutation(api.phoneNumbers.setDefaultPhoneNumber);
+  const saveWhatsAppToken = useMutation(api.whatsapp.saveCredentials);
 
   const [newNumber, setNewNumber] = useState('');
   const [label, setLabel] = useState('');
@@ -45,6 +49,8 @@ const Page = () => {
   const [step, setStep] = useState<Step>('input');
   const [error, setError] = useState('');
   const [showDidww, setShowDidww] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState(COUNTRIES[0]);
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
 
   const resetFlow = () => {
     setNewNumber('');
@@ -53,14 +59,22 @@ const Page = () => {
     setWhatsappPhoneNumberId('');
     setError('');
     setStep('input');
+    setSelectedCountry(COUNTRIES[0]);
+  };
+
+  const buildFullNumber = () => {
+    const digits = stripPhoneFormat(newNumber);
+    if (!digits) return '';
+    return selectedCountry.prefix + digits;
   };
 
   const handleStartVerification = async () => {
-    if (!newNumber.trim()) return;
+    const fullNumber = buildFullNumber();
+    if (!fullNumber) return;
     setError('');
     setStep('checking');
     try {
-      const result = await checkExists({ number: newNumber.trim() });
+      const result = await checkExists({ number: fullNumber });
       if (result.exists) {
         setError(t('phone_numbers.already_linked'));
         setStep('input');
@@ -89,31 +103,19 @@ const Page = () => {
     return () => subscription.remove();
   }, []);
 
-  const openEmbeddedSignup = async () => {
-    const appId = process.env.EXPO_PUBLIC_META_APP_ID;
-    const configId = process.env.EXPO_PUBLIC_META_EMBEDDED_CONFIG_ID;
-
-    if (!appId || !configId) {
-      Alert.alert(
-        t('phone_numbers.embedded_signup'),
-        t('phone_numbers.missing_config')
-      );
-      setStep('credentials');
-      return;
-    }
-
-    const redirectUri = encodeURIComponent('myapp://whatsapp-callback');
-    const url = `https://business.facebook.com/wa/embed/signup?app_id=${encodeURIComponent(appId)}&config_id=${encodeURIComponent(configId)}&redirect_uri=${redirectUri}`;
-    await WebBrowser.openBrowserAsync(url);
+  const openEmbeddedSignup = () => {
+    // Mobile does not have the Facebook JS SDK, so we go straight to manual token entry
+    setStep('token');
   };
 
   const handleAddVerified = async () => {
-    if (!newNumber.trim() || !whatsappToken.trim() || !whatsappPhoneNumberId.trim()) return;
+    const fullNumber = buildFullNumber();
+    if (!fullNumber || !whatsappToken.trim() || !whatsappPhoneNumberId.trim()) return;
     setError('');
     setStep('adding');
     try {
       await addVerified({
-        number: newNumber.trim(),
+        number: fullNumber,
         label: label.trim() || undefined,
         whatsappToken: whatsappToken.trim(),
         whatsappPhoneNumberId: whatsappPhoneNumberId.trim(),
@@ -122,6 +124,38 @@ const Page = () => {
     } catch (err: any) {
       setError(err.message || t('phone_numbers.add_error'));
       setStep('credentials');
+    }
+  };
+
+  const handleAddExisting = async () => {
+    const fullNumber = buildFullNumber();
+    if (!fullNumber) return;
+    setError('');
+    try {
+      await addPhone({
+        number: fullNumber,
+        label: label.trim() || undefined,
+        provider: 'manual',
+      });
+      resetFlow();
+    } catch (err: any) {
+      setError(err.message || t('phone_numbers.add_error'));
+    }
+  };
+
+  const handleSaveTokenOnly = async () => {
+    if (!whatsappToken.trim()) return;
+    setError('');
+    setStep('adding');
+    try {
+      await saveWhatsAppToken({
+        whatsappToken: whatsappToken.trim(),
+        whatsappPhoneNumberId: whatsappPhoneNumberId.trim() || undefined,
+      });
+      resetFlow();
+    } catch (err: any) {
+      setError(err.message || 'Error al guardar token');
+      setStep('token');
     }
   };
 
@@ -283,23 +317,45 @@ const Page = () => {
             <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.gray, marginBottom: 10, textTransform: 'uppercase' }}>
               {t('phone_numbers.add_existing')}
             </Text>
-            <TextInput
-              style={{
-                backgroundColor: '#fff',
-                borderRadius: 10,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-                fontSize: 16,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: Colors.lightGray,
-                marginBottom: 8,
-              }}
-              placeholder={t('phone_numbers.number_placeholder')}
-              placeholderTextColor={Colors.gray}
-              keyboardType="phone-pad"
-              value={newNumber}
-              onChangeText={setNewNumber}
-            />
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+              <TouchableOpacity
+                onPress={() => setShowCountryPicker(true)}
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#fff',
+                  borderRadius: 10,
+                  paddingHorizontal: 10,
+                  paddingVertical: 10,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: Colors.lightGray,
+                  gap: 4,
+                }}>
+                <Text style={{ fontSize: 20 }}>{selectedCountry.flag}</Text>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.text }}>
+                  {selectedCountry.prefix}
+                </Text>
+                <Ionicons name="chevron-down" size={14} color={Colors.gray} />
+              </TouchableOpacity>
+              <TextInput
+                style={{
+                  flex: 1,
+                  backgroundColor: '#fff',
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  fontSize: 16,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: Colors.lightGray,
+                }}
+                placeholder="600 000 000"
+                placeholderTextColor={Colors.gray}
+                keyboardType="phone-pad"
+                value={newNumber}
+                onChangeText={(text) => setNewNumber(formatPhoneInput(text))}
+              />
+            </View>
             <TextInput
               style={{
                 backgroundColor: '#fff',
@@ -337,6 +393,34 @@ const Page = () => {
                 {t('phone_numbers.verify_whatsapp')}
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleAddExisting}
+              disabled={!newNumber.trim()}
+              activeOpacity={0.8}
+              style={{
+                marginTop: 10,
+                backgroundColor: '#fff',
+                borderRadius: 10,
+                paddingVertical: 12,
+                alignItems: 'center',
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: Colors.lightGray,
+              }}>
+              <Text style={{ color: Colors.gray, fontSize: 14, fontWeight: '600' }}>
+                Añadir número existente
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setStep('token')}
+              activeOpacity={0.8}
+              style={{
+                marginTop: 10,
+                alignItems: 'center',
+              }}>
+              <Text style={{ color: Colors.primary, fontSize: 14 }}>
+                ¿Ya tienes un token? Conectar manualmente
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -355,13 +439,8 @@ const Page = () => {
               {t('phone_numbers.embedded_signup')}
             </Text>
             <Text style={{ fontSize: 14, color: Colors.gray, marginBottom: 16, lineHeight: 20 }}>
-              {t('phone_numbers.verify_description')}
+              Para añadir {buildFullNumber()}, debes verificarlo primero a través de WhatsApp Business Embedded Signup.
             </Text>
-            <View style={{ backgroundColor: '#E3F2FD', borderRadius: 10, padding: 12, marginBottom: 16 }}>
-              <Text style={{ fontSize: 13, color: '#1565C0' }}>
-                {t('phone_numbers.number_to_verify')}: <Text style={{ fontWeight: '700' }}>{newNumber}</Text>
-              </Text>
-            </View>
             <TouchableOpacity
               onPress={openEmbeddedSignup}
               activeOpacity={0.8}
@@ -377,7 +456,7 @@ const Page = () => {
               }}>
               <Ionicons name="open-outline" size={18} color="#fff" />
               <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>
-                {t('phone_numbers.open_signup')}
+                Abrir verificación de WhatsApp
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -468,6 +547,81 @@ const Page = () => {
               <Ionicons name="add" size={18} color="#fff" />
               <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>
                 {t('phone_numbers.add')}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={resetFlow}
+              activeOpacity={0.8}
+              style={{ alignItems: 'center' }}>
+              <Text style={{ color: Colors.red, fontSize: 14 }}>
+                {t('phone_numbers.cancel')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {step === 'token' && (
+          <View style={[defaultStyles.block, { padding: isAndroidLike ? 14 : 12 }]}>
+            <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 8 }}>
+              Token de WhatsApp Business
+            </Text>
+            <Text style={{ fontSize: 14, color: Colors.gray, marginBottom: 12 }}>
+              Pega tu token de acceso de Facebook para enviar mensajes de WhatsApp.
+            </Text>
+            <TextInput
+              style={{
+                backgroundColor: '#fff',
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                fontSize: 16,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: Colors.lightGray,
+                marginBottom: 8,
+              }}
+              placeholder="Token de acceso (EAAB...)"
+              placeholderTextColor={Colors.gray}
+              value={whatsappToken}
+              onChangeText={setWhatsappToken}
+              autoCapitalize="none"
+            />
+            <TextInput
+              style={{
+                backgroundColor: '#fff',
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                fontSize: 16,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: Colors.lightGray,
+                marginBottom: 10,
+              }}
+              placeholder="Phone Number ID (opcional)"
+              placeholderTextColor={Colors.gray}
+              value={whatsappPhoneNumberId}
+              onChangeText={setWhatsappPhoneNumberId}
+              autoCapitalize="none"
+            />
+            {!!error && (
+              <Text style={{ fontSize: 13, color: Colors.red, marginBottom: 8 }}>{error}</Text>
+            )}
+            <TouchableOpacity
+              onPress={handleSaveTokenOnly}
+              disabled={!whatsappToken.trim()}
+              activeOpacity={0.8}
+              style={{
+                backgroundColor: !whatsappToken.trim() ? Colors.lightGray : Colors.green,
+                borderRadius: 10,
+                paddingVertical: 12,
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                gap: 6,
+                marginBottom: 10,
+              }}>
+              <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>
+                Guardar token
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -584,6 +738,73 @@ const Page = () => {
                 {t('phone_numbers.understood')}
               </Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {showCountryPicker && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'flex-end',
+          }}>
+          <View
+            style={{
+              backgroundColor: '#fff',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              maxHeight: '70%',
+              paddingBottom: 20,
+            }}>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: Colors.lightGray,
+              }}>
+              <Text style={{ fontSize: 17, fontWeight: '600' }}>Seleccionar país</Text>
+              <TouchableOpacity onPress={() => setShowCountryPicker(false)}>
+                <Ionicons name="close" size={24} color={Colors.gray} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentInsetAdjustmentBehavior="automatic">
+              {COUNTRIES.map((country) => (
+                <TouchableOpacity
+                  key={country.code}
+                  onPress={() => {
+                    setSelectedCountry(country);
+                    setShowCountryPicker(false);
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: '#f0f0f0',
+                  }}>
+                  <Text style={{ fontSize: 22, marginRight: 12 }}>{country.flag}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16 }}>{country.name}</Text>
+                  </View>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: Colors.gray }}>
+                    {country.prefix}
+                  </Text>
+                  {selectedCountry.code === country.code && (
+                    <Ionicons name="checkmark" size={20} color={Colors.green} style={{ marginLeft: 8 }} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         </View>
       )}

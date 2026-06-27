@@ -36,6 +36,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import * as Contacts from 'expo-contacts';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Clipboard from 'expo-clipboard';
 
 const Page = () => {
   const [text, setText] = useState('');
@@ -44,6 +45,8 @@ const Page = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
   const { isDark } = useTheme();
   const Colors = getColors(isDark);
 
@@ -68,6 +71,7 @@ const Page = () => {
   const sendLocation = useMutation(api.messages.sendLocation);
   const sendContact = useMutation(api.messages.sendContact);
   const sendDocument = useMutation(api.messages.sendDocument);
+  const sendWhatsAppMessage = useMutation(api.whatsapp.sendMessage);
 
   const activeConversation = useMemo(() => {
     if (!conversations || !conversationId) return null;
@@ -164,21 +168,62 @@ const Page = () => {
   const [replyMessage, setReplyMessage] = useState<IMessage | null>(null);
   const swipeableRowRef = useRef<Swipeable | null>(null);
 
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const enterSelectionMode = useCallback((id: string) => {
+    setSelectedIds(new Set([id]));
+    setIsSelectionMode(true);
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setSelectedIds(new Set());
+    setIsSelectionMode(false);
+  }, []);
+
+  const copySelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const texts = messages
+      .filter((m) => selectedIds.has(String(m._id)))
+      .map((m) => m.text)
+      .filter(Boolean)
+      .join('\n');
+    if (texts) {
+      await Clipboard.setStringAsync(texts);
+    }
+    exitSelectionMode();
+  }, [messages, selectedIds, exitSelectionMode]);
+
   const onSend = useCallback(
     async (outgoing: IMessage[] = []) => {
       const msg = outgoing[0];
       const content = msg?.text?.trim();
       if (!content || !conversationId || !me?._id) return;
 
-      await sendTextMessage({
-        content,
-        conversation: conversationId as any,
-        sender: me._id,
-      });
+      if (activeConversation?.isWhatsApp && activeConversation?.whatsappPhone) {
+        await sendWhatsAppMessage({
+          conversationId: conversationId as any,
+          to: activeConversation.whatsappPhone,
+          body: content,
+          senderId: me._id,
+        });
+      } else {
+        await sendTextMessage({
+          content,
+          conversation: conversationId as any,
+          sender: me._id,
+        });
+      }
 
       setText('');
     },
-    [conversationId, me?._id, sendTextMessage]
+    [conversationId, me?._id, sendTextMessage, sendWhatsAppMessage, activeConversation]
   );
 
   const uploadToConvexStorage = async (uri: string, fileName: string, type: string) => {
@@ -347,31 +392,47 @@ const Page = () => {
                 gap: 10,
                 paddingBottom: 4,
               }}>
-              {headerImage ? (
-                <Image source={{ uri: headerImage }} style={{ width: 40, height: 40, borderRadius: 50 }} />
+              {isSelectionMode ? (
+                <Text style={{ fontSize: 18, fontWeight: '700', color: Colors.text }}>
+                  {selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}
+                </Text>
               ) : (
-                <Image source={require('@/assets/images/icon.png')} style={{ width: 40, height: 40, borderRadius: 50 }} />
+                <>
+                  {headerImage ? (
+                    <Image source={{ uri: headerImage }} style={{ width: 40, height: 40, borderRadius: 50 }} />
+                  ) : (
+                    <Image source={require('@/assets/images/icon.png')} style={{ width: 40, height: 40, borderRadius: 50 }} />
+                  )}
+                  <Text style={{ fontSize: 16, fontWeight: '500', color: Colors.text }}>{headerTitle}</Text>
+                </>
               )}
-              <Text style={{ fontSize: 16, fontWeight: '500', color: Colors.text }}>{headerTitle}</Text>
             </View>
           ),
           headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={26} color={Colors.text} />
-            </TouchableOpacity>
+            isSelectionMode ? (
+              <TouchableOpacity onPress={exitSelectionMode} style={{ marginLeft: 14 }}>
+                <Ionicons name="close" size={26} color={Colors.text} />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={() => router.back()}>
+                <Ionicons name="arrow-back" size={26} color={Colors.text} />
+              </TouchableOpacity>
+            )
           ),
           headerRight: () => (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 14 }}>
-              <TouchableOpacity onPress={() => { /* TODO: audio call */ }}>
-                <Ionicons name="call" size={22} color={Colors.primary} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => { /* TODO: video call */ }}>
-                <Ionicons name="videocam" size={22} color={Colors.primary} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowMenu(true)}>
-                <Ionicons name="ellipsis-vertical" size={22} color={Colors.text} />
-              </TouchableOpacity>
-            </View>
+            isSelectionMode ? null : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 14 }}>
+                <TouchableOpacity onPress={() => { /* TODO: audio call */ }}>
+                  <Ionicons name="call" size={22} color={Colors.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => { /* TODO: video call */ }}>
+                  <Ionicons name="videocam" size={22} color={Colors.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowMenu(true)}>
+                  <Ionicons name="ellipsis-vertical" size={22} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+            )
           ),
         }}
       />
@@ -640,15 +701,57 @@ const Page = () => {
         renderChatFooter={() => (
           <ReplyMessageBar clearReply={() => setReplyMessage(null)} message={replyMessage} />
         )}
-        onLongPress={(context, message) => setReplyMessage(message)}
+        onPress={(context, message) => {
+          if (isSelectionMode && message?._id) {
+            toggleSelection(String(message._id));
+          }
+        }}
+        onLongPress={(context, message) => {
+          if (!isSelectionMode && message?._id) {
+            enterSelectionMode(String(message._id));
+          }
+        }}
         renderMessage={(props) => (
           <ChatMessageBox
             {...props}
             setReplyOnSwipeOpen={setReplyMessage}
             updateRowRef={updateRowRef}
+            isSelectionMode={isSelectionMode}
+            isSelected={props.currentMessage ? selectedIds.has(String(props.currentMessage._id)) : false}
           />
         )}
       />
+
+      {isSelectionMode && (
+        <View
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            backgroundColor: Colors.card,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: Colors.separator,
+            paddingBottom: insets.bottom + 12,
+            paddingTop: 12,
+            paddingHorizontal: 20,
+            flexDirection: 'row',
+            justifyContent: 'space-around',
+            zIndex: 50,
+          }}>
+          <TouchableOpacity
+            onPress={copySelected}
+            disabled={selectedIds.size === 0}
+            style={{ alignItems: 'center', opacity: selectedIds.size === 0 ? 0.4 : 1 }}>
+            <Ionicons name="copy-outline" size={24} color={Colors.primary} />
+            <Text style={{ fontSize: 12, color: Colors.primary, marginTop: 4 }}>Copiar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={exitSelectionMode} style={{ alignItems: 'center' }}>
+            <Ionicons name="close-circle-outline" size={24} color={Colors.gray} />
+            <Text style={{ fontSize: 12, color: Colors.gray, marginTop: 4 }}>Cancelar</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </ChatBackground>
   );
 };

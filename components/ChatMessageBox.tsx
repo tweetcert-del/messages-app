@@ -1,4 +1,4 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
@@ -9,9 +9,17 @@ import Colors from '@/constants/Colors';
 type ChatMessageBoxProps = {
   setReplyOnSwipeOpen: (message: IMessage) => void;
   updateRowRef: (ref: any) => void;
+  isSelectionMode: boolean;
+  isSelected: boolean;
 } & MessageProps<IMessage>;
 
-const ChatMessageBox = ({ setReplyOnSwipeOpen, updateRowRef, ...props }: ChatMessageBoxProps) => {
+const ChatMessageBox = ({
+  setReplyOnSwipeOpen,
+  updateRowRef,
+  isSelectionMode,
+  isSelected,
+  ...props
+}: ChatMessageBoxProps) => {
   const isNextMyMessage =
     props.currentMessage &&
     props.nextMessage &&
@@ -49,6 +57,23 @@ const ChatMessageBox = ({ setReplyOnSwipeOpen, updateRowRef, ...props }: ChatMes
     }
   };
 
+  const inner = (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      {isSelectionMode && (
+        <View style={{ marginHorizontal: 6 }}>
+          <Ionicons
+            name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
+            size={22}
+            color={isSelected ? Colors.primary : Colors.gray}
+          />
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Message {...props} />
+      </View>
+    </View>
+  );
+
   return (
     <GestureHandlerRootView>
       <Swipeable
@@ -57,7 +82,9 @@ const ChatMessageBox = ({ setReplyOnSwipeOpen, updateRowRef, ...props }: ChatMes
         rightThreshold={40}
         renderLeftActions={renderRightAction}
         onSwipeableWillOpen={onSwipeOpenAction}>
-        <Message {...props} />
+        <View style={isSelected ? { backgroundColor: 'rgba(37, 211, 102, 0.08)' } : undefined}>
+          {inner}
+        </View>
       </Swipeable>
     </GestureHandlerRootView>
   );

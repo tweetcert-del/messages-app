@@ -42,7 +42,9 @@ const Page = () => {
         renderItem={({ item }) => {
           const title = item.isGroup
             ? item.groupName ?? t('chats.group')
-            : item.name ?? item.email ?? t('chats.chat');
+            : item.isWhatsApp
+              ? item.whatsappPhone ?? 'WhatsApp'
+              : item.name ?? item.email ?? t('chats.chat');
           const img = item.isGroup ? item.groupImage : item.image;
           const last = item.lastMessage;
           const msg =

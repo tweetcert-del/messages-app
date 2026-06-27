@@ -147,30 +147,46 @@ export default function NewChatPage() {
         />
       </View>
 
-      {whatsappNumbers.length > 0 && (
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: dynamicColors.gray }]}>{t('new_chat.whatsapp_numbers')}</Text>
-          {whatsappNumbers.map((num: any) => (
-            <TouchableOpacity
-              key={num._id}
-              style={styles.itemRow}
-              onPress={() => handleStartWhatsAppChat(num.number)}>
-              <Ionicons name="logo-whatsapp" size={24} color="#25D366" />
-              <View style={{ marginLeft: 12 }}>
-                <Text style={[styles.itemTitle, { color: dynamicColors.text }]}>{num.number}</Text>
-                <Text style={[styles.itemSubtitle, { color: dynamicColors.gray }]}>WhatsApp Business</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
       <TouchableOpacity
         style={[styles.addByNumberRow, { borderTopColor: dynamicColors.separator }]}
         onPress={() => setShowPhoneInput((s) => !s)}>
         <Ionicons name="add-circle-outline" size={24} color={dynamicColors.primary} />
         <Text style={[styles.addByNumberText, { color: dynamicColors.primary }]}>{t('new_chat.add_by_number')}</Text>
       </TouchableOpacity>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: dynamicColors.gray }]}>WhatsApp Business</Text>
+        <View style={styles.phoneInputContainer}>
+          <TouchableOpacity
+            style={styles.countrySelector}
+            onPress={() => {
+              const idx = COUNTRIES.indexOf(selectedCountry);
+              setSelectedCountry(COUNTRIES[(idx + 1) % COUNTRIES.length]);
+            }}>
+            <Text style={[styles.countryText, { color: dynamicColors.text }]}>
+              {selectedCountry.code} {selectedCountry.prefix}
+            </Text>
+            <Ionicons name="chevron-down" size={16} color={dynamicColors.gray} />
+          </TouchableOpacity>
+          <TextInput
+            style={[styles.phoneInput, { borderColor: dynamicColors.lightGray, color: dynamicColors.text }]}
+            placeholder="Número de WhatsApp"
+            placeholderTextColor={dynamicColors.gray}
+            keyboardType="phone-pad"
+            value={phoneNumber}
+            onChangeText={setPhoneNumber}
+          />
+          <TouchableOpacity
+            style={[styles.verifyButton, { backgroundColor: '#25D366' }, !phoneNumber.trim() && { opacity: 0.6 }]}
+            onPress={() => {
+              if (!phoneNumber.trim()) return;
+              handleStartWhatsAppChat(`${selectedCountry.prefix}${phoneNumber.trim()}`);
+            }}
+            disabled={!phoneNumber.trim()}>
+            <Text style={[styles.verifyButtonText, { color: '#fff' }]}>WhatsApp</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {showPhoneInput && (
         <View style={styles.phoneInputContainer}>

@@ -23,6 +23,7 @@
     "expo-auth-session": "~5.5.2",
     "expo-background-fetch": "~12.0.1",
     "expo-camera": "~15.0.16",
+    "expo-clipboard": "^56.0.4",
     "expo-contacts": "~13.0.5",
     "expo-crypto": "~13.0.2",
     "expo-dev-client": "~4.0.29",
